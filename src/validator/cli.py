@@ -1,10 +1,13 @@
 import typer
 from rich.console import Console
 from rich.table import Table
+
 from validator.profiler import quick_profile
+from validator.rules import validate_non_empty
 
 app = typer.Typer(help="Simple and fast data validation CLI utility.")
 console = Console()
+
 
 @app.command()
 def validate(
@@ -13,16 +16,32 @@ def validate(
     json_output: bool = typer.Option(False, "--json", help="Output as JSON."),
 ):
     """
-    Validate a dataset (CSV or Parquet). Returns exit code (0 OK, 1 WARNING, 2 FAIL).
+    CLI entrypoint for validating a dataset.
+
+    Flow:
+    - Load dataset using profiling module
+    - Execute validation rules (e.g. minimum row count)
+    - Display results and exit with appropriate code
     """
     console.print(f"[bold]Reading:[/bold] {path}")
+
+    import os
+    if os.path.getsize(path) == 0:
+        console.print("[bold red] Validation error: file is empty[/bold red]")
+        raise typer.Exit(code=2)
 
     try:
         profile = quick_profile(path)
     except Exception as e:
-        console.print(f"[red]Error reading file:[/red] {e}")
+        console.print(f"[red] Error reading file:[/red] {e}")
         raise typer.Exit(code=2)
 
+    # ─── Validation Rules ─────────────────────────────────────────────
+    validate_non_empty(profile)
+    # Add more rules here later (e.g. null ratio, duplicates, etc.)
+    # ─────────────────────────────────────────────────────────────────
+
+    # ─── Display Output ───────────────────────────────────────────────
     table = Table(show_header=False, show_edge=False)
     table.add_row("Rows:", str(profile.get("rows")))
     table.add_row("Columns:", str(profile.get("columns")))
@@ -35,9 +54,10 @@ def validate(
 
     console.print("\n[bold cyan]Data Validation Report[/bold cyan]")
     console.print(table)
-    console.print("[bold green]Status: OK[/bold green]\n")
+    console.print("[bold green] Status: OK[/bold green]\n")
 
     raise typer.Exit(code=0)
+
 
 if __name__ == "__main__":
     app()
