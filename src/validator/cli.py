@@ -4,6 +4,7 @@ from rich.table import Table
 
 from validator.profiler import quick_profile
 from validator.rules import validate_non_empty
+from validator.rules import validate_non_empty, warn_high_null_ratio
 
 app = typer.Typer(help="Simple and fast data validation CLI utility.")
 console = Console()
@@ -38,6 +39,7 @@ def validate(
 
     # ─── Validation Rules ─────────────────────────────────────────────
     validate_non_empty(profile)
+    warning_detected = warn_high_null_ratio(profile, threshold=0.5) # Warning rules (non-breaking)
     # Add more rules here later (e.g. null ratio, duplicates, etc.)
     # ─────────────────────────────────────────────────────────────────
 
@@ -54,7 +56,10 @@ def validate(
 
     console.print("\n[bold cyan]Data Validation Report[/bold cyan]")
     console.print(table)
-    console.print("[bold green] Status: OK[/bold green]\n")
+    if warning_detected:
+        console.print("[yellow] Status: WARNING[/yellow]")
+    else:
+        console.print("[bold green] Status: OK[/bold green]\n")
 
     raise typer.Exit(code=0)
 
