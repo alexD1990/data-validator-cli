@@ -12,6 +12,7 @@ def quick_profile(path: str) -> dict:
     """
     df = pd.read_csv(path, nrows=50000)  # Sampling, not full load
     return {
+        "path":path,
         "rows": len(df),
         "columns": len(df.columns),
         "column_names": list(df.columns),
