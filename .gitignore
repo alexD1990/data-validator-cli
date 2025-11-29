@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Poetry
+.venv/
+poetry.lock
+
+# VSCode / IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test data
+tests/data/*
+!tests/data/.keep
+
+# CSV test files
+*.csv

@@ -1,0 +1,28 @@
+[project]
+name = "data-validator-cli"
+version = "0.1.0"
+description = "Data validation CLI utility"
+authors = [
+    {name = "Alex", email = "alex12060309@gmail.com"}
+]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "typer (>=0.20.0,<0.21.0)",
+    "pandas (>=2.3.3,<3.0.0)",
+    "pyarrow (>=22.0.0,<23.0.0)",
+    "rich (>=14.2.0,<15.0.0)"
+]
+
+[project.scripts]
+validate = "validator.cli:app"
+
+[tool.poetry]
+packages = [
+    { include = "validator", from = "src" }
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
