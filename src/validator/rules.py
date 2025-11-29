@@ -60,3 +60,42 @@ def warn_high_null_ratio(profile: Dict, threshold: float = 0.5) -> bool:
         return True
 
     return False
+
+def warn_duplicate_rows(profile: Dict, threshold_ratio: float = 0.01) -> bool:
+    """
+    Warning rule: detect duplicated full rows.
+    
+    Parameters
+    ----------
+    profile : dict
+        Profiling result (must include 'df_sample' if enabled later, but for now we'll re-read file).
+    threshold_ratio : float
+        Ratio threshold for duplicates. e.g. 0.01 for 1%.
+    
+    Returns
+    -------
+    bool
+        True if warning is triggered, False otherwise.
+    """
+    rows = profile.get("rows", 0)
+    if rows <= 1:
+        return False  # Nothing to compare
+
+    # Re-read file (only sample logic was used earlier)
+    try:
+        import pandas as pd
+        df = pd.read_csv(profile["path"], nrows=50000)
+    except Exception:
+        return False  # Skip if reading fails, avoid blocking validation
+
+    duplicate_count = df.duplicated().sum()
+    if duplicate_count == 0:
+        return False
+
+    ratio = duplicate_count / rows
+    if ratio >= threshold_ratio:
+        console.print("\n[bold yellow]Warning: Duplicate rows detected[/bold yellow]")
+        console.print(f"  • Count: {duplicate_count} ({ratio:.1%} of dataset)")
+        return True
+    
+    return False
