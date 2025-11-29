@@ -3,7 +3,7 @@ from rich.console import Console
 from rich.table import Table
 
 from validator.profiler import quick_profile
-from validator.rules import validate_non_empty, warn_high_null_ratio, warn_duplicate_rows, warn_type_mismatch
+from validator.rules import validate_non_empty, warn_high_null_ratio, warn_duplicate_rows, warn_general_type_mismatch
 
 app = typer.Typer(help="Simple and fast data validation CLI utility.")
 console = Console()
@@ -38,11 +38,15 @@ def validate(
 
     # ─── Validation Rules ─────────────────────────────────────────────
     validate_non_empty(profile)
-    warning_detected = warn_high_null_ratio(profile, threshold=0.5) # Warning rules (non-breaking)
+    # Warning rules (non-breaking)
+    warning_detected = warn_high_null_ratio(profile, threshold=0.5) 
+
     dup_warning = warn_duplicate_rows(profile, threshold_ratio=0.01)
     warning_detected = warning_detected or dup_warning
-    type_warning = warn_type_mismatch(profile, numeric_ratio_threshold=0.8)
+
+    type_warning = warn_general_type_mismatch(profile, threshold_ratio=0.8)
     warning_detected = warning_detected or type_warning
+
     # Add more rules here later (e.g. null ratio, duplicates, etc.)
     # ─────────────────────────────────────────────────────────────────
 
