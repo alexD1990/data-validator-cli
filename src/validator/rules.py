@@ -99,3 +99,50 @@ def warn_duplicate_rows(profile: Dict, threshold_ratio: float = 0.01) -> bool:
         return True
     
     return False
+
+def warn_type_mismatch(profile: Dict, numeric_ratio_threshold: float = 0.8) -> bool:
+    """
+    Warning rule: detects likely type mismatches in data.
+    Example: column appears numeric but contains non-numeric values.
+    
+    Parameters
+    ----------
+    profile : dict
+        Profile data with basic stats (incl. 'path').
+    numeric_ratio_threshold : float
+        % of values required to be numeric for us to expect column as numeric.
+
+    Returns
+    -------
+    bool
+        True if warning triggered, else False.
+    """
+    import pandas as pd
+
+    try:
+        df = pd.read_csv(profile["path"], nrows=50000)
+    except Exception:
+        return False
+
+    warnings = []
+
+    for col in df.columns:
+        series = df[col].dropna()
+
+        if len(series) == 0:
+            continue  # empty or all null
+
+        # Try convert to numeric and check success ratio
+        numeric_mask = pd.to_numeric(series, errors="coerce").notna()
+        numeric_ratio = numeric_mask.sum() / len(series)
+
+        if 0 < numeric_ratio < numeric_ratio_threshold:
+            warnings.append(f"{col}: {numeric_ratio:.1%} numeric-like")
+
+    if warnings:
+        console.print("\n[bold yellow] Warning: Potential type mismatch detected[/bold yellow]")
+        for w in warnings:
+            console.print(f"  • {w}")
+        return True
+
+    return False
