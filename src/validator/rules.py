@@ -100,23 +100,7 @@ def warn_duplicate_rows(profile: Dict, threshold_ratio: float = 0.01) -> bool:
     
     return False
 
-def warn_type_mismatch(profile: Dict, numeric_ratio_threshold: float = 0.8) -> bool:
-    """
-    Warning rule: detects likely type mismatches in data.
-    Example: column appears numeric but contains non-numeric values.
-    
-    Parameters
-    ----------
-    profile : dict
-        Profile data with basic stats (incl. 'path').
-    numeric_ratio_threshold : float
-        % of values required to be numeric for us to expect column as numeric.
-
-    Returns
-    -------
-    bool
-        True if warning triggered, else False.
-    """
+def warn_general_type_mismatch(profile: Dict, threshold_ratio: float = 0.8) -> bool:
     import pandas as pd
 
     try:
@@ -128,21 +112,47 @@ def warn_type_mismatch(profile: Dict, numeric_ratio_threshold: float = 0.8) -> b
 
     for col in df.columns:
         series = df[col].dropna()
-
         if len(series) == 0:
-            continue  # empty or all null
+            continue
 
-        # Try convert to numeric and check success ratio
+        total = len(series)
+
+        # Numeric detection
         numeric_mask = pd.to_numeric(series, errors="coerce").notna()
-        numeric_ratio = numeric_mask.sum() / len(series)
+        numeric_ratio = numeric_mask.mean()
 
-        if 0 < numeric_ratio < numeric_ratio_threshold:
-            warnings.append(f"{col}: {numeric_ratio:.1%} numeric-like")
+        # Boolean-like detection
+        bool_mask = series.astype(str).str.lower().isin(["true", "false", "yes", "no", "1", "0"])
+        bool_ratio = bool_mask.mean()
+
+        # Default type = string (always 100%)
+        string_ratio = 1.0
+
+        # Determine dominant type (highest ratio)
+        ratios = {
+            "numeric": numeric_ratio,
+            "boolean-like": bool_ratio,
+            "string": string_ratio
+        }
+        dominant_type, ratio = max(ratios.items(), key=lambda x: x[1])
+
+        if dominant_type == "string":
+            # Only warn if numeric or boolean-like ratio is very high but string dominates
+            if numeric_ratio >= threshold_ratio or bool_ratio >= threshold_ratio:
+                warnings.append(f"{col}: Dominant type uncertain (string fallback). Numeric {numeric_ratio:.1%}, boolean-like {bool_ratio:.1%}")
+        elif ratio >= threshold_ratio:
+            mask = {"numeric": numeric_mask, "boolean-like": bool_mask}[dominant_type]
+            inconsistent_count = (~mask).sum()
+            if inconsistent_count > 0:
+                warnings.append(f"{col}: {ratio:.1%} {dominant_type}, {inconsistent_count} inconsistent values")
 
     if warnings:
-        console.print("\n[bold yellow] Warning: Potential type mismatch detected[/bold yellow]")
+        console.print("\n[bold yellow]⚠ Warning: Type consistency issues detected[/bold yellow]")
         for w in warnings:
             console.print(f"  • {w}")
         return True
 
     return False
+
+
+
