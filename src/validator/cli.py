@@ -3,14 +3,21 @@ from rich.console import Console
 from rich.table import Table
 
 from validator.profiler import quick_profile
-from validator.rules import (
-    validate_non_empty,
-    warn_high_null_ratio,
-    warn_duplicate_rows,
-    warn_general_type_mismatch,
-    warn_numeric_outliers,
-    warn_whitespace_issues,
-)
+from validator.engine import RuleEngine
+from validator.rules.quality import WhitespaceRule
+from validator.rules.structural import NonEmptyRule
+from validator.rules.quality import NullRatioRule
+from validator.rules.structural import DuplicateRule
+from validator.rules.quality import TypeMismatchRule
+from validator.rules.numeric import NumericOutlierRule
+#from validator.rules import (
+   # validate_non_empty,
+   # warn_high_null_ratio,
+   # warn_duplicate_rows,
+   # warn_general_type_mismatch,
+   # warn_numeric_outliers,
+   # warn_whitespace_issues,
+#)
 
 app = typer.Typer(help="Simple and fast data validation CLI utility.")
 console = Console()
@@ -43,55 +50,20 @@ def validate(
         console.print(f"[red] Error reading file:[/red] {e}")
         raise typer.Exit(code=2)
 
-    # ─── Validation Rules ─────────────────────────────────────────────
-    validate_non_empty(profile)
-    # Warning rules (non-breaking)
-    warning_detected = warn_high_null_ratio(profile, threshold=0.5) 
+    # ─── RuleEngine Execution ─────────────────────────────────────────────
 
-    dup_warning = warn_duplicate_rows(profile, threshold_ratio=0.01)
-    warning_detected = warning_detected or dup_warning
+    engine = RuleEngine(rules=[
+        NonEmptyRule(),
+        NullRatioRule(),
+        DuplicateRule(),
+        TypeMismatchRule(),
+        NumericOutlierRule(),   # NEW
+        WhitespaceRule(),
+    ])
 
-    type_warning = warn_general_type_mismatch(profile, threshold_ratio=0.8)
-    warning_detected = warning_detected or type_warning
+    results = engine.run(profile)
+    engine.render_console(results)
 
-    outlier_warning = warn_numeric_outliers(profile)
-    warning_detected = warning_detected or outlier_warning
-
-    outlier_warning = warn_numeric_outliers(profile)
-    warning_detected = warning_detected or outlier_warning
-
-    # NEW: Whitespace issues detection
-    ws_result = warn_whitespace_issues(profile["df"], profile)  # profile["df"] since profiler returns df
-    if ws_result["trigger"]:
-        warning_detected = True
-        console.print("\n[yellow] Warning: Whitespace issues detected [/yellow]")
-        for col, count in ws_result["details"].items():
-            ratio = round(count / profile["rows"] * 100, 2)
-            console.print(f"  • {col}: {count} rows ({ratio}%)")
-
-
-    # Add more rules here later (e.g. null ratio, duplicates, etc.)
-    # ─────────────────────────────────────────────────────────────────
-
-    # ─── Display Output ───────────────────────────────────────────────
-    table = Table(show_header=False, show_edge=False)
-    table.add_row("Rows:", str(profile.get("rows")))
-    table.add_row("Columns:", str(profile.get("columns")))
-
-    if not summary:
-        table.add_row("Column names:", ", ".join(profile.get("column_names")))
-        nulls = profile.get("nulls")
-        null_info = ", ".join([f"{col}: {v}" for col, v in nulls.items()])
-        table.add_row("Null values:", null_info)
-
-    console.print("\n[bold cyan]Data Validation Report[/bold cyan]")
-    console.print(table)
-    if warning_detected:
-        console.print("[yellow] Status: WARNING[/yellow]")
-    else:
-        console.print("[bold green] Status: OK[/bold green]\n")
-
-    raise typer.Exit(code=0)
 
 
 if __name__ == "__main__":
