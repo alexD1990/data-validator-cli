@@ -11,13 +11,15 @@ class NonEmptyRule(BaseRule):
         if rows == 0:
             return ValidationResult(
                 warning=True,
-                message="Dataset is empty",
-                details={"rows": 0},
+                message="Dataset empty",
+                details={"total_rows": 0},
             )
 
+        # No warning, but still fact-based details
         return ValidationResult(
             warning=False,
-            message="Dataset contains rows",
+            message="Dataset empty",
+            details={"total_rows": rows},
         )
 
 
@@ -28,28 +30,15 @@ class DuplicateRule(BaseRule):
         df = profile["df"]
         rows = len(df)
 
-        if rows == 0:
-            return ValidationResult(
-                warning=False,
-                message="No duplicate check on empty dataset",
-            )
-
-        dup_count = df.duplicated().sum()
-        ratio = dup_count / rows
-
-        threshold = 0.01
-
-        if dup_count > 0 and ratio >= threshold:
-            return ValidationResult(
-                warning=True,
-                message="Duplicate rows detected",
-                details={
-                    "count": dup_count,
-                    "ratio": f"{ratio:.2%}",
-                },
-            )
+        dup_count = int(df.duplicated().sum())
+        ratio = dup_count / rows if rows else 0.0
 
         return ValidationResult(
-            warning=False,
-            message="No significant duplicate rows found",
+            warning=(dup_count > 0),  # renderer decides significance
+            message="Duplicate rows",
+            details={
+                "count": dup_count,
+                "ratio": float(ratio),
+                "total_rows": rows,
+            },
         )
