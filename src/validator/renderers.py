@@ -1,14 +1,52 @@
-from typing import List, Dict
-
+from typing import Dict, List
 import pandas as pd
 from rich.console import Console
-from rich.table import Table
 
 from validator.engine import ValidationReport
 from validator.rules.base import ValidationResult
 
+
 console = Console()
 
+
+# ------------------------------------------------------------
+# Utilities
+# ------------------------------------------------------------
+
+def _format_ratio(r: float) -> str:
+    """Format numeric ratio float → 'xx.xx%'."""
+    return f"{r * 100:.2f}%"
+
+
+def _format_details(details: Dict) -> List[str]:
+    """
+    Convert details dict into printable structured lines.
+    Renderer is responsible for formatting.
+    """
+    lines = []
+
+    # Case 1: single-level dictionary (quality/structural)
+    if "columns" not in details:
+        for key, value in details.items():
+            if isinstance(value, float):
+                value_fmt = _format_ratio(value)
+            else:
+                value_fmt = str(value)
+            lines.append(f"{key}: {value_fmt}")
+        return lines
+
+    # Case 2: multi-column structure (numeric outliers)
+    for col, info in details["columns"].items():
+        count = info["count"]
+        ratio = _format_ratio(info["ratio"])
+        lines.append(f"{col}: count={count}, ratio={ratio}")
+
+    return lines
+
+
+# ------------------------------------------------------------
+# Summary
+# ------------------------------------------------------------
 
 def render_summary(profile: Dict) -> None:
     df = profile.get("df")
@@ -30,45 +68,52 @@ def render_summary(profile: Dict) -> None:
                 other_cols += 1
 
     console.print("\n[bold cyan]Data Summary[/bold cyan]")
-    table = Table(show_header=False, show_edge=False)
-    table.add_row("Rows:", str(rows))
-    table.add_row("Columns:", str(columns))
-    table.add_row("Types:", f"{text_cols} text, {numeric_cols} numeric, {other_cols} other")
-    console.print(table)
+    console.print(f" Rows:    │ {rows}")
+    console.print(f" Columns: │ {columns}")
+    console.print(f" Types:   │ {text_cols} text, {numeric_cols} numeric, {other_cols} other")
 
 
-def render_structural(structural_results: List[ValidationResult]) -> None:
+# ------------------------------------------------------------
+# Structural Checks
+# ------------------------------------------------------------
+
+def render_structural(results: List[ValidationResult]) -> None:
     console.print("\n[bold]Structural Checks[/bold]")
 
-    if not structural_results:
-        console.print(" • (no structural rules configured)")
-        return
+    warnings = [r for r in results if r.warning]
 
-    for res in structural_results:
-        status = "⚠" if res.warning else "✓"
-        msg = res.message
-        console.print(f" • {msg} {status}")
-        if res.details:
-            for k, v in res.details.items():
-                console.print(f"    - {k}: {v}")
+    if warnings:
+        for r in warnings:
+            console.print(f" ⚠ {r.message}")
+            if r.details:
+                for line in _format_details(r.details):
+                    console.print(f"    - {line}")
+    else:
+        console.print(" ✓ No structural issues detected")
 
 
-def render_quality(quality_results: List[ValidationResult]) -> None:
+# ------------------------------------------------------------
+# Quality Checks
+# ------------------------------------------------------------
+
+def render_quality(results: List[ValidationResult]) -> None:
     console.print("\n[bold]Quality Checks[/bold]")
 
-    # Vi viser kun faktiske warnings her, for å holde det kompakt
-    warnings = [r for r in quality_results if r.warning]
+    warnings = [r for r in results if r.warning]
 
-    if not warnings:
-        console.print(" • No quality issues detected")
-        return
+    if warnings:
+        for r in warnings:
+            console.print(f" ⚠ {r.message}")
+            if r.details:
+                for line in _format_details(r.details):
+                    console.print(f"    - {line}")
+    else:
+        console.print(" ✓ No quality issues detected")
 
-    for res in warnings:
-        console.print(f" • {res.message}")
-        if res.details:
-            for k, v in res.details.items():
-                console.print(f"    - {k}: {v}")
 
+# ------------------------------------------------------------
+# Numeric Distribution (descriptive section)
+# ------------------------------------------------------------
 
 def render_numeric(profile: Dict, numeric_results: List[ValidationResult]) -> None:
     df = profile.get("df")
@@ -77,63 +122,65 @@ def render_numeric(profile: Dict, numeric_results: List[ValidationResult]) -> No
     console.print("\n[bold]Numeric Distribution[/bold]")
 
     if df is None or not numeric_stats:
-        console.print(" • (no numeric columns)")
+        console.print(" (no numeric columns)")
         return
 
-    # Map outlier-info per kolonne fra numeric rules
-    outlier_counts: Dict[str, int] = {}
-    for res in numeric_results:
-        if res.warning and res.details:
-            for col, count in res.details.items():
-                outlier_counts[col] = int(count)
+    # Collect outlier counts from numeric_results
+    outlier_data = {}
+    for r in numeric_results:
+        if not r.warning:
+            continue
+        if not r.details or "columns" not in r.details:
+            continue
+        for col, info in r.details["columns"].items():
+            outlier_data[col] = info
 
+    # Iterate columns
     for col, stats in numeric_stats.items():
-        series = df[col].dropna()
-        if series.empty:
+        s = df[col].dropna()
+        if s.empty:
             continue
 
-        col_min = stats.get("min")
-        col_max = stats.get("max")
-        mean = stats.get("mean")
-        std = stats.get("std")
+        col_min = stats["min"]
+        col_max = stats["max"]
+        mean = stats["mean"]
+        std = stats["std"]
 
-        median = float(series.median())
-        q1 = float(series.quantile(0.25))
-        q3 = float(series.quantile(0.75))
+        median = float(s.median())
+        q1 = float(s.quantile(0.25))
+        q3 = float(s.quantile(0.75))
         iqr = q3 - q1
 
-        # Heuristikker for "mistenkelig" distribusjon
-        skew_flag = False
-        extreme_range_flag = False
+        # Determine warnings
+        parts = []
+        
+        # Add outlier warning ONLY if count > 0
+        if col in outlier_data:
+            count = outlier_data[col]["count"]
+            if count > 0:   # <-- FIX: Only warn when outlier count > 0
+                ratio = outlier_data[col]["ratio"]
+                parts.append(f"{count} outliers ({_format_ratio(ratio)})")
 
-        if mean is not None and median is not None and median != 0:
-            if mean > 2 * median:
-                skew_flag = True
-
-        if mean is not None and std is not None and col_max is not None:
-            if col_max > mean + 3 * std:
-                extreme_range_flag = True
-
-        outliers = outlier_counts.get(col)
-        warn_parts = []
-        if outliers:
-            total = len(series)
-            ratio = outliers / total if total else 0
-            warn_parts.append(f"{outliers} outliers ({ratio:.2%})")
-        if skew_flag or extreme_range_flag:
-            warn_parts.append("suspicious distribution")
+        skew = (mean > 2 * median) if (mean is not None and median != 0) else False
+        if skew:
+            parts.append("suspicious distribution")
 
         warn_suffix = ""
-        if warn_parts:
-            warn_suffix = " ⚠ " + " – ".join(warn_parts)
+        if parts:
+            warn_suffix = " ⚠ " + " – ".join(parts)
 
+        # Headline for column
         console.print(f" • {col}: [{col_min} → {col_max}], median {median}{warn_suffix}")
 
         # Conditional detail
-        if skew_flag and mean is not None:
+        if skew and mean is not None:
             console.print(f"    - mean {mean:.2f} >> median {median:.2f}")
         console.print(f"    - IQR [{q1:.2f} → {q3:.2f}]")
 
+
+# ------------------------------------------------------------
+# Validation Status
+# ------------------------------------------------------------
 
 def render_status(report: ValidationReport) -> None:
     any_warning = any(
@@ -141,6 +188,7 @@ def render_status(report: ValidationReport) -> None:
         for bucket in (report.structural, report.quality, report.numeric)
         for r in bucket
     )
+
     console.print()
     if any_warning:
         console.print("[yellow]Status: WARNING[/yellow]")
