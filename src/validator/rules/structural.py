@@ -1,4 +1,6 @@
+import pandas as pd
 from validator.rules.base import BaseRule, ValidationResult
+
 
 class NonEmptyRule(BaseRule):
     name = "non_empty"
@@ -10,16 +12,14 @@ class NonEmptyRule(BaseRule):
             return ValidationResult(
                 warning=True,
                 message="Dataset is empty",
-                details={"rows": 0}
+                details={"rows": 0},
             )
 
         return ValidationResult(
             warning=False,
-            message="Dataset contains rows"
+            message="Dataset contains rows",
         )
 
-import pandas as pd
-from validator.rules.base import BaseRule, ValidationResult
 
 class DuplicateRule(BaseRule):
     name = "duplicate_rows"
@@ -31,13 +31,12 @@ class DuplicateRule(BaseRule):
         if rows == 0:
             return ValidationResult(
                 warning=False,
-                message="No duplicate check on empty dataset"
+                message="No duplicate check on empty dataset",
             )
 
         dup_count = df.duplicated().sum()
         ratio = dup_count / rows
 
-        # Same default behavior as old warn_duplicate_rows threshold_ratio=0.01
         threshold = 0.01
 
         if dup_count > 0 and ratio >= threshold:
@@ -46,10 +45,11 @@ class DuplicateRule(BaseRule):
                 message="Duplicate rows detected",
                 details={
                     "count": dup_count,
-                    "ratio": f"{ratio:.2%}"
-                }
+                    "ratio": f"{ratio:.2%}",
+                },
             )
 
         return ValidationResult(
             warning=False,
-            message="No significant duplicate rows found")
+            message="No significant duplicate rows found",
+        )
