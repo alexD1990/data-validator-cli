@@ -8,7 +8,8 @@ from validator.rules import (
     warn_high_null_ratio,
     warn_duplicate_rows,
     warn_general_type_mismatch,
-    warn_numeric_outliers,  
+    warn_numeric_outliers,
+    warn_whitespace_issues,
 )
 
 app = typer.Typer(help="Simple and fast data validation CLI utility.")
@@ -55,6 +56,19 @@ def validate(
 
     outlier_warning = warn_numeric_outliers(profile)
     warning_detected = warning_detected or outlier_warning
+
+    outlier_warning = warn_numeric_outliers(profile)
+    warning_detected = warning_detected or outlier_warning
+
+    # NEW: Whitespace issues detection
+    ws_result = warn_whitespace_issues(profile["df"], profile)  # profile["df"] since profiler returns df
+    if ws_result["trigger"]:
+        warning_detected = True
+        console.print("\n[yellow] Warning: Whitespace issues detected [/yellow]")
+        for col, count in ws_result["details"].items():
+            ratio = round(count / profile["rows"] * 100, 2)
+            console.print(f"  • {col}: {count} rows ({ratio}%)")
+
 
     # Add more rules here later (e.g. null ratio, duplicates, etc.)
     # ─────────────────────────────────────────────────────────────────
