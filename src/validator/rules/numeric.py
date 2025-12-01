@@ -1,3 +1,6 @@
+from validator.rules.base import BaseRule, ValidationResult
+import pandas as pd
+
 class NumericOutlierRule(BaseRule):
     name = "numeric_outliers"
 
