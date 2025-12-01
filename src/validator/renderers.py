@@ -1,4 +1,5 @@
 from typing import Dict, List
+
 import pandas as pd
 from rich.console import Console
 
@@ -8,10 +9,6 @@ from validator.rules.base import ValidationResult
 
 console = Console()
 
-
-# ------------------------------------------------------------
-# Utilities
-# ------------------------------------------------------------
 
 def _format_ratio(r: float) -> str:
     """Format numeric ratio float → 'xx.xx%'."""
@@ -48,7 +45,8 @@ def _format_details(details: Dict) -> List[str]:
 # Summary
 # ------------------------------------------------------------
 
-def render_summary(profile: Dict) -> None:
+def render_summary(report: ValidationReport) -> None:
+    profile = report.profile
     df = profile.get("df")
     rows = profile.get("rows", 0)
     columns = profile.get("columns", 0)
@@ -115,9 +113,10 @@ def render_quality(results: List[ValidationResult]) -> None:
 # Numeric Distribution (descriptive section)
 # ------------------------------------------------------------
 
-def render_numeric(profile: Dict, numeric_results: List[ValidationResult]) -> None:
+def render_numeric(report: ValidationReport) -> None:
+    profile = report.profile
     df = profile.get("df")
-    numeric_stats = profile.get("numeric_stats", {})
+    numeric_stats = profile.get("numeric_stats", {}) or {}
 
     console.print("\n[bold]Numeric Distribution[/bold]")
 
@@ -127,15 +126,15 @@ def render_numeric(profile: Dict, numeric_results: List[ValidationResult]) -> No
 
     # Collect outlier counts from numeric_results
     outlier_data = {}
-    for r in numeric_results:
-        if not r.warning:
+    for r in report.numeric_results:
+        if not r.details:
             continue
-        if not r.details or "columns" not in r.details:
+        cols = r.details.get("columns")
+        if not isinstance(cols, dict):
             continue
-        for col, info in r.details["columns"].items():
+        for col, info in cols.items():
             outlier_data[col] = info
 
-    # Iterate columns
     for col, stats in numeric_stats.items():
         s = df[col].dropna()
         if s.empty:
@@ -151,16 +150,17 @@ def render_numeric(profile: Dict, numeric_results: List[ValidationResult]) -> No
         q3 = float(s.quantile(0.75))
         iqr = q3 - q1
 
-        # Determine warnings
+        # Build warning parts
         parts = []
-        
-        # Add outlier warning ONLY if count > 0
+
+        # Only warn if >0 outliers
         if col in outlier_data:
             count = outlier_data[col]["count"]
-            if count > 0:   # <-- FIX: Only warn when outlier count > 0
+            if count > 0:
                 ratio = outlier_data[col]["ratio"]
                 parts.append(f"{count} outliers ({_format_ratio(ratio)})")
 
+        # Suspicious distribution
         skew = (mean > 2 * median) if (mean is not None and median != 0) else False
         if skew:
             parts.append("suspicious distribution")
@@ -169,7 +169,6 @@ def render_numeric(profile: Dict, numeric_results: List[ValidationResult]) -> No
         if parts:
             warn_suffix = " ⚠ " + " – ".join(parts)
 
-        # Headline for column
         console.print(f" • {col}: [{col_min} → {col_max}], median {median}{warn_suffix}")
 
         # Conditional detail
@@ -183,11 +182,7 @@ def render_numeric(profile: Dict, numeric_results: List[ValidationResult]) -> No
 # ------------------------------------------------------------
 
 def render_status(report: ValidationReport) -> None:
-    any_warning = any(
-        r.warning
-        for bucket in (report.structural, report.quality, report.numeric)
-        for r in bucket
-    )
+    any_warning = report.has_warnings
 
     console.print()
     if any_warning:

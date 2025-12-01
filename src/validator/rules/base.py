@@ -1,50 +1,47 @@
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
+import numpy as np
+
+
+def _to_native(value):
+    """Convert numpy types to Python-native JSON-serializable types."""
+    if isinstance(value, (np.integer,)):
+        return int(value)
+    if isinstance(value, (np.floating,)):
+        return float(value)
+    if isinstance(value, (np.ndarray,)):
+        return value.tolist()
+    return value
+
 
 @dataclass
 class ValidationResult:
     """
-    Normalized validation output contract (v1.0a.1).
-
-    message: str
-        Short fact-based label describing the type of check,
-        e.g. "Duplicate rows", "Null ratio", "Type consistency".
-
-    warning: bool
-        True if rule considers the condition problematic.
-
-    details: dict
-        MUST contain raw numeric values only.
-        Renderer decides formatting.
-        
-        Example for structural rule:
-        {
-            "count": 12,
-            "ratio": 0.045,            # float
-            "total_rows": 267          # int
-        }
-
-        Example for multiple-column rules:
-        {
-            "columns": {
-                "price": {"count": 12, "ratio": 0.012},
-                "quantity": {"count": 3, "ratio": 0.003}
-            }
-        }
+    Validation result for a single rule.
+    Uses native-safe values to support JSON output.
     """
     warning: bool
     message: str
-    details: Optional[Dict] = None
+    details: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        # Convert any numpy values inside details to native Python
+        native_details = {
+            k: _to_native(v)
+            for k, v in (self.details or {}).items()
+        }
+        return {
+            "warning": self.warning,
+            "message": self.message,
+            "details": native_details,
+        }
+
 
 class BaseRule:
     """
-    Base class for all validation rules.
-    Each rule must implement:
-        - name: str
-        - apply(profile: dict) -> ValidationResult
+    Abstract base class for validation rules.
     """
+    name: str = "rule"
 
-    name: str = "base"
-
-    def apply(self, profile: dict) -> ValidationResult:
-        raise NotImplementedError("Rule must implement apply()")
+    def apply(self, profile: Dict[str, Any]) -> ValidationResult:
+        raise NotImplementedError("Rules must implement apply()")

@@ -1,9 +1,18 @@
+import os
 import pandas as pd
 
-def quick_profile(path: str) -> dict:
-    df = pd.read_csv(path, nrows=50000)
 
-    numeric_cols = df.select_dtypes(include=['number']).columns
+def quick_profile(path: str) -> dict:
+    ext = os.path.splitext(path)[1].lower()
+
+    if ext == ".parquet":
+        df = pd.read_parquet(path)
+    elif ext == ".csv":
+        df = pd.read_csv(path, nrows=50000)
+    else:
+        raise ValueError(f"Unsupported format: {path}")
+
+    numeric_cols = df.select_dtypes(include=["number"]).columns
     numeric_stats = {}
     for col in numeric_cols:
         if len(df[col].dropna()) == 0:
@@ -17,7 +26,7 @@ def quick_profile(path: str) -> dict:
 
     return {
         "path": path,
-        "df": df,  # Cached DataFrame
+        "df": df,
         "rows": len(df),
         "columns": len(df.columns),
         "column_names": list(df.columns),
