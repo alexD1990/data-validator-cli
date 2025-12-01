@@ -1,27 +1,23 @@
 import pandas as pd
 from validator.rules.base import BaseRule, ValidationResult
-
+from typing import Optional
 
 class NonEmptyRule(BaseRule):
     name = "non_empty"
 
-    def apply(self, profile: dict) -> ValidationResult:
+    def apply(self, profile: dict) -> Optional[ValidationResult]:
         rows = profile.get("rows", 0)
 
+        # FAIL CASE – dataset is empty
         if rows == 0:
             return ValidationResult(
                 warning=True,
                 message="Dataset empty",
-                details={"total_rows": 0},
+                details={"rows": 0}
             )
 
-        # No warning, but still fact-based details
-        return ValidationResult(
-            warning=False,
-            message="Dataset empty",
-            details={"total_rows": rows},
-        )
-
+        # OK CASE – do NOT return anything
+        return None
 
 class DuplicateRule(BaseRule):
     name = "duplicate_rows"
