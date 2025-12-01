@@ -153,10 +153,13 @@ def render_numeric(profile: Dict, numeric_results: List[ValidationResult]) -> No
 
         # Determine warnings
         parts = []
+        
+        # Add outlier warning ONLY if count > 0
         if col in outlier_data:
             count = outlier_data[col]["count"]
-            ratio = outlier_data[col]["ratio"]
-            parts.append(f"{count} outliers ({_format_ratio(ratio)})")
+            if count > 0:   # <-- FIX: Only warn when outlier count > 0
+                ratio = outlier_data[col]["ratio"]
+                parts.append(f"{count} outliers ({_format_ratio(ratio)})")
 
         skew = (mean > 2 * median) if (mean is not None and median != 0) else False
         if skew:
