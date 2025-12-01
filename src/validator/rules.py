@@ -62,29 +62,13 @@ def warn_high_null_ratio(profile: Dict, threshold: float = 0.5) -> bool:
     return False
 
 def warn_duplicate_rows(profile: Dict, threshold_ratio: float = 0.01) -> bool:
-    """
-    Warning rule: detect duplicated full rows.
-    
-    Parameters
-    ----------
-    profile : dict
-        Profiling result (must include 'df_sample' if enabled later, but for now we'll re-read file).
-    threshold_ratio : float
-        Ratio threshold for duplicates. e.g. 0.01 for 1%.
-    
-    Returns
-    -------
-    bool
-        True if warning is triggered, False otherwise.
-    """
     rows = profile.get("rows", 0)
     if rows <= 1:
         return False  # Nothing to compare
 
     # Re-read file (only sample logic was used earlier)
     try:
-        import pandas as pd
-        df = pd.read_csv(profile["path"], nrows=50000)
+        df = profile.get("df")
     except Exception:
         return False  # Skip if reading fails, avoid blocking validation
 
@@ -103,9 +87,8 @@ def warn_duplicate_rows(profile: Dict, threshold_ratio: float = 0.01) -> bool:
 def warn_general_type_mismatch(profile: Dict, threshold_ratio: float = 0.8) -> bool:
     import pandas as pd
 
-    try:
-        df = pd.read_csv(profile["path"], nrows=50000)
-    except Exception:
+    df = profile.get("df")
+    if df is None:
         return False
 
     warnings = []
@@ -125,10 +108,9 @@ def warn_general_type_mismatch(profile: Dict, threshold_ratio: float = 0.8) -> b
         bool_mask = series.astype(str).str.lower().isin(["true", "false", "yes", "no", "1", "0"])
         bool_ratio = bool_mask.mean()
 
-        # Default type = string (always 100%)
+        # Default type = string
         string_ratio = 1.0
 
-        # Determine dominant type (highest ratio)
         ratios = {
             "numeric": numeric_ratio,
             "boolean-like": bool_ratio,
@@ -137,17 +119,53 @@ def warn_general_type_mismatch(profile: Dict, threshold_ratio: float = 0.8) -> b
         dominant_type, ratio = max(ratios.items(), key=lambda x: x[1])
 
         if dominant_type == "string":
-            # Only warn if numeric or boolean-like ratio is very high but string dominates
             if numeric_ratio >= threshold_ratio or bool_ratio >= threshold_ratio:
-                warnings.append(f"{col}: Dominant type uncertain (string fallback). Numeric {numeric_ratio:.1%}, boolean-like {bool_ratio:.1%}")
+                warnings.append(
+                    f"{col}: Dominant type uncertain (string fallback). "
+                    f"Numeric {numeric_ratio:.1%}, boolean-like {bool_ratio:.1%}"
+                )
         elif ratio >= threshold_ratio:
             mask = {"numeric": numeric_mask, "boolean-like": bool_mask}[dominant_type]
             inconsistent_count = (~mask).sum()
             if inconsistent_count > 0:
-                warnings.append(f"{col}: {ratio:.1%} {dominant_type}, {inconsistent_count} inconsistent values")
+                warnings.append(
+                    f"{col}: {ratio:.1%} {dominant_type}, {inconsistent_count} inconsistent values"
+                )
 
     if warnings:
-        console.print("\n[bold yellow]⚠ Warning: Type consistency issues detected[/bold yellow]")
+        console.print("\n[bold yellow] Warning: Type consistency issues detected[/bold yellow]")
+        for w in warnings:
+            console.print(f"  • {w}")
+        return True
+
+    return False
+
+def warn_numeric_outliers(profile: Dict, iqr_multiplier: float = 3.0) -> bool:
+    df = profile.get("df")
+    if df is None:
+        return False
+
+    numeric_cols = df.select_dtypes(include=['number']).columns
+    warnings = []
+
+    for col in numeric_cols:
+        series = df[col].dropna()
+        if len(series) < 10:
+            continue
+
+        Q1 = series.quantile(0.25)
+        Q3 = series.quantile(0.75)
+        IQR = Q3 - Q1
+        lower = Q1 - iqr_multiplier * IQR
+        upper = Q3 + iqr_multiplier * IQR
+
+        outliers = ((series < lower) | (series > upper)).sum()
+        if outliers > 0:
+            ratio = outliers / len(series)
+            warnings.append(f"{col}: {outliers} outliers ({ratio:.1%})")
+
+    if warnings:
+        console.print("\n[bold yellow] Warning: Numeric outliers detected[/bold yellow]")
         for w in warnings:
             console.print(f"  • {w}")
         return True
