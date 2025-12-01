@@ -1,6 +1,3 @@
-import pandas as pd
-from validator.rules.base import BaseRule, ValidationResult
-
 class NumericOutlierRule(BaseRule):
     name = "numeric_outliers"
 
@@ -8,35 +5,35 @@ class NumericOutlierRule(BaseRule):
         df = profile["df"]
         numeric_cols = df.select_dtypes(include=["number"]).columns
 
-        issues = {}
+        details = {"columns": {}}
 
         for col in numeric_cols:
             s = df[col].dropna()
-
-            if len(s) == 0:
+            if s.empty:
                 continue
 
             q1 = s.quantile(0.25)
             q3 = s.quantile(0.75)
             iqr = q3 - q1
-
             lower = q1 - 1.5 * iqr
             upper = q3 + 1.5 * iqr
 
             mask = (s < lower) | (s > upper)
-            outliers = int(mask.sum())
+            count = int(mask.sum())
 
-            if outliers > 0:
-                issues[col] = outliers
+            details["columns"][col] = {
+                "count": count,
+                "ratio": float(count / len(s)) if len(s) else 0.0,
+            }
 
-        if issues:
-            return ValidationResult(
-                warning=True,
-                message="Numeric outliers detected",
-                details=issues
-            )
+        warning = any(
+            col_info["count"] > 0
+            for col_info in details["columns"].values()
+        )
 
         return ValidationResult(
-            warning=False,
-            message="No numeric outliers detected"
+            warning=warning,
+            message="Numeric outliers",
+            details=details,
         )
+
