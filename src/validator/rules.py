@@ -14,6 +14,8 @@ Exit codes:
 
 from typing import Dict
 from rich.console import Console
+import pandas as pd
+import re
 
 console = Console()
 
@@ -85,7 +87,6 @@ def warn_duplicate_rows(profile: Dict, threshold_ratio: float = 0.01) -> bool:
     return False
 
 def warn_general_type_mismatch(profile: Dict, threshold_ratio: float = 0.8) -> bool:
-    import pandas as pd
 
     df = profile.get("df")
     if df is None:
@@ -172,5 +173,33 @@ def warn_numeric_outliers(profile: Dict, iqr_multiplier: float = 3.0) -> bool:
 
     return False
 
+def warn_whitespace_issues(df: pd.DataFrame, profile: Dict, threshold_ratio: float = 0.05) -> Dict:
+    issue_summary = {}
+    total_rows = len(df)
+
+    if total_rows == 0:
+        return {"trigger": False, "details": {}}
+
+    for col in df.columns:
+        if df[col].dtype == object or pd.api.types.is_string_dtype(df[col]):
+            series = df[col].astype(str)
+
+            # Catch leading / trailing whitespace
+            mask_strip = series.str.strip() != series
+
+            # Catch multiple internal spaces
+            mask_multi_space = series.str.contains(r" {2,}", regex=True)
+
+            # Catch tabs
+            mask_tabs = series.str.contains(r"\t", regex=True)
+
+            # Combine all whitespace checks
+            mask_total = mask_strip | mask_multi_space | mask_tabs
+            affected = int(mask_total.sum())
+
+            if affected > 0 and affected / total_rows >= threshold_ratio:
+                issue_summary[col] = affected
+
+    return {"trigger": len(issue_summary) > 0, "details": issue_summary}
 
 
