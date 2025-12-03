@@ -1,26 +1,16 @@
-# Data Validator CLI
+# Data Validator
 
-Lightweight and fast command-line tool for basic dataset sanity checks before further analysis.
+Simple, fast data validation for pandas DataFrames and CSV/Parquet files.
 
-The goal is simple:
+## Python API (primary)
 
-* Validate a dataset (CSV or Parquet) quickly and clearly without having to open a notebook.
+```python
+import datavalidator as dv
+import pandas as pd
 
-Ideal for:
-- Quick pre-check before data ingestion or transformation
-- CI/CD validation steps
-- Identifying obvious schema issues, null problems, or structural anomalies
+df = pd.read_csv("data.csv")
+report = dv.validate(df)
 
----
-
-## Current status
- **Prototype phase (v0.1)**  
-Basic CLI structure + lightweight dataset profiling.
-
----
-
-## Usage (early prototype)
-
-```bash
-validate data.csv
-```
+if report.has_warnings:
+    print("Issues found")
+    print(report.to_json())

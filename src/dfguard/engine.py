@@ -3,11 +3,10 @@ from dataclasses import dataclass
 from typing import List, Optional, Sequence, Dict, Any
 
 import pandas as pd
-
-from validator.rules.base import BaseRule, ValidationResult
-from .version import __version__
-
 import numpy as np
+
+from .rules.base import BaseRule, ValidationResult
+from .version import __version__
 
 def _to_native(value):
     """Convert numpy types to native Python types for JSON serialization."""

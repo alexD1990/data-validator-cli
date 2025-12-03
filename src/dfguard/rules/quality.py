@@ -1,5 +1,5 @@
 import pandas as pd
-from validator.rules.base import BaseRule, ValidationResult
+from .base import BaseRule, ValidationResult
 
 class WhitespaceRule(BaseRule):
     name = "whitespace_issues"
