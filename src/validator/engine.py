@@ -5,7 +5,7 @@ from typing import List, Optional, Sequence, Dict, Any
 import pandas as pd
 
 from validator.rules.base import BaseRule, ValidationResult
-from validator import __version__
+from .version import __version__
 
 import numpy as np
 

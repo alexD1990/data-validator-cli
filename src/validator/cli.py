@@ -1,10 +1,11 @@
+# src/validator/cli.py
 import os
 
 import typer
 from rich.console import Console
 
 from validator.profiler import quick_profile
-from validator.engine import RuleEngine
+from validator.core import validate_profile
 from validator.renderers import (
     render_summary,
     render_structural,
@@ -12,9 +13,6 @@ from validator.renderers import (
     render_numeric,
     render_status,
 )
-from validator.rules.structural import NonEmptyRule, DuplicateRule
-from validator.rules.quality import NullRatioRule, TypeMismatchRule, WhitespaceRule
-from validator.rules.numeric import NumericOutlierRule
 
 app = typer.Typer(help="Simple and fast data validation CLI utility.")
 console = Console()
@@ -30,8 +28,8 @@ def validate(
     CLI entrypoint for validating a dataset.
 
     Flow:
-    - Load dataset using profiling module
-    - Execute validation rules
+    - Load + profile dataset using profiling module
+    - Run standard validation rules via core API
     - Render console output or JSON
     """
     console.print(f"[bold]Reading:[/bold] {path}")
@@ -56,23 +54,8 @@ def validate(
             console.print(f"[red] {msg}[/red]")
         raise typer.Exit(code=2)
 
-    # RuleEngine setup
-    engine = RuleEngine(
-        structural_rules=[
-            NonEmptyRule(),
-            DuplicateRule(),
-        ],
-        quality_rules=[
-            NullRatioRule(),
-            TypeMismatchRule(),
-            WhitespaceRule(),
-        ],
-        numeric_rules=[
-            NumericOutlierRule(),
-        ],
-    )
-
-    report = engine.run(profile)
+    # Use the same engine and rules as the Python API
+    report = validate_profile(profile)
 
     # JSON mode
     if json_output:
@@ -81,6 +64,7 @@ def validate(
         raise typer.Exit(code=0 if not report.has_warnings else 1)
 
     # Console mode (existing behavior preserved)
+    # Note: 'summary' flag is reserved for future behavior, currently unused.
     render_summary(report)
     render_structural(report.structural_results)
     render_quality(report.quality_results)
