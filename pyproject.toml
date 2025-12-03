@@ -1,7 +1,7 @@
 [project]
-name = "data-validator-cli"
+name = "dfguard"
 version = "1.0.0"
-description = "Data validation CLI utility"
+description = "Guard your DataFrames: simple sanity checks and profiling for pandas"
 authors = [
     {name = "Alex", email = "alex12060309@gmail.com"}
 ]
@@ -16,11 +16,11 @@ dependencies = [
 ]
 
 [project.scripts]
-validate = "validator.cli:app"
+dfguard = "dfguard.cli:app"
 
 [tool.poetry]
 packages = [
-    { include = "validator", from = "src" }
+    { include = "dfguard", from = "src" }
 ]
 
 [build-system]

@@ -3,12 +3,10 @@ from typing import Dict, List
 import pandas as pd
 from rich.console import Console
 
-from validator.engine import ValidationReport
-from validator.rules.base import ValidationResult
-
+from .engine import ValidationReport
+from .rules.base import ValidationResult
 
 console = Console()
-
 
 def _format_ratio(r: float) -> str:
     """Format numeric ratio float → 'xx.xx%'."""

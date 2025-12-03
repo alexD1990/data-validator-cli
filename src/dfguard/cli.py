@@ -1,12 +1,12 @@
-# src/validator/cli.py
+# src/dfguard/cli.py
 import os
 
 import typer
 from rich.console import Console
 
-from validator.profiler import quick_profile
-from validator.core import validate_profile
-from validator.renderers import (
+from .profiler import quick_profile
+from .core import validate_profile
+from .renderers import (
     render_summary,
     render_structural,
     render_quality,
