@@ -53,23 +53,40 @@ class NullRatioRule(BaseRule):
 class TypeMismatchRule(BaseRule):
     name = "type_consistency"
 
-    def apply(self, profile: dict) -> ValidationResult:
+    def apply(self, profile: dict):
         df = profile["df"]
         rows = len(df)
 
         issues = {}
+
         for col in df.columns:
             s = df[col]
-            if s.dtype == object:
-                coerced = pd.to_numeric(s, errors="coerce")
-                ratio = coerced.notna().sum() / rows if rows else 0.0
-                issues[col] = float(ratio)
 
-        warning = any(r < 0.8 for r in issues.values())
+            # Skip numeric dtypes entirely
+            if pd.api.types.is_numeric_dtype(s.dtype):
+                continue
+
+            # Try to convert to numeric
+            coerced = pd.to_numeric(s, errors="coerce")
+            numeric_count = coerced.notna().sum()
+
+            if numeric_count == 0:
+                # Pure text, OK
+                continue
+
+            if numeric_count == rows:
+                # Pure numeric-strings, OK
+                continue
+
+            # Otherwise mixed → warning
+            issues[col] = float(numeric_count / rows)
+
+        if not issues:
+            return None
 
         return ValidationResult(
-            warning=warning,
-            message="Type consistency",
+            warning=True,
+            message="Type mismatch",
             details=issues,
         )
 
