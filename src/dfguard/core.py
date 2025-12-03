@@ -1,21 +1,29 @@
-# src/validator/core.py
+# src/dfguard/core.py
+
+from __future__ import annotations
+
 from typing import Any, Dict
 
 import pandas as pd
 
 from .profiler import profile_dataframe
-from .engine import RuleEngine, ValidationReport
+from .engine import RuleEngine
+from .report import ValidationReport
+
+# Structural rules
 from .rules.structural import NonEmptyRule, DuplicateRule
-from .rules.quality import NullRatioRule, TypeMismatchRule, WhitespaceRule
+
+# Quality rules
+from .rules.quality import WhitespaceRule, NullRatioRule, TypeMismatchRule
+
+# Numeric rules
 from .rules.numeric import NumericOutlierRule
 
 
 def _build_default_engine() -> RuleEngine:
     """
-    Construct the default RuleEngine with all built-in rules.
-
-    This is the single source of truth for which rules are applied,
-    used by both the Python API and the CLI.
+    Construct the RuleEngine with all built-in rules.
+    This is the single source of truth for rule ordering.
     """
     return RuleEngine(
         structural_rules=[
@@ -23,9 +31,9 @@ def _build_default_engine() -> RuleEngine:
             DuplicateRule(),
         ],
         quality_rules=[
+            WhitespaceRule(),
             NullRatioRule(),
             TypeMismatchRule(),
-            WhitespaceRule(),
         ],
         numeric_rules=[
             NumericOutlierRule(),
@@ -35,29 +43,33 @@ def _build_default_engine() -> RuleEngine:
 
 def validate(df: pd.DataFrame) -> ValidationReport:
     """
-    Primary public API: validate a pandas DataFrame.
-
-    Example:
-        import datavalidator as dv
-
-        report = dv.validate(df)
-        if report.has_warnings:
-            print("Issues found")
-            print(report.to_json())
+    Public API: Validate a pandas DataFrame and return a ValidationReport.
+    ALWAYS returns ValidationReport (never ValidationResult).
     """
     profile = profile_dataframe(df)
     engine = _build_default_engine()
-    return engine.run(profile)
+    report = engine.run(profile)
+
+    # Hard contract check:
+    if not isinstance(report, ValidationReport):
+        raise TypeError(
+            f"validate() must return ValidationReport, got {type(report)}"
+        )
+
+    return report
 
 
 def validate_profile(profile: Dict[str, Any]) -> ValidationReport:
     """
     Internal helper: validate an already-profiled dataset.
-
-    Used by the CLI to avoid re-running profiling logic when the
-    file has already been loaded and profiled.
-
-    Not part of the public API contract, but safe to use internally.
+    Used by CLI to avoid redundant profiling.
     """
     engine = _build_default_engine()
-    return engine.run(profile)
+    report = engine.run(profile)
+
+    if not isinstance(report, ValidationReport):
+        raise TypeError(
+            f"validate_profile() must return ValidationReport, got {type(report)}"
+        )
+
+    return report

@@ -1,3 +1,5 @@
+# src/dfguard/rules/base.py
+
 from dataclasses import dataclass
 from typing import Dict, Optional, Any
 import numpy as np
@@ -17,15 +19,21 @@ def _to_native(value):
 @dataclass
 class ValidationResult:
     """
-    Validation result for a single rule.
-    Uses native-safe values to support JSON output.
+    Uniform container for rule results.
     """
     warning: bool
     message: str
     details: Optional[Dict[str, Any]] = None
 
+    # NOTE:
+    # A 'name' attribute will be attached dynamically by the RuleEngine.
+    # As long as this class does NOT use __slots__, this works.
+    #
+    # Example:
+    #   res = ValidationResult(...)
+    #   res.name = rule.name
+
     def to_dict(self) -> Dict[str, Any]:
-        # Convert any numpy values inside details to native Python
         native_details = {
             k: _to_native(v)
             for k, v in (self.details or {}).items()
@@ -39,9 +47,10 @@ class ValidationResult:
 
 class BaseRule:
     """
-    Abstract base class for validation rules.
+    Abstract rule interface.
+    Concrete rules must implement apply().
     """
     name: str = "rule"
 
-    def apply(self, profile: Dict[str, Any]) -> ValidationResult:
+    def apply(self, profile: Dict[str, Any]) -> Optional[ValidationResult]:
         raise NotImplementedError("Rules must implement apply()")
