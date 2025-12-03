@@ -1,23 +1,27 @@
 import pandas as pd
 from .base import BaseRule, ValidationResult
-from typing import Optional
+
 
 class NonEmptyRule(BaseRule):
     name = "non_empty"
 
-    def apply(self, profile: dict) -> Optional[ValidationResult]:
+    def apply(self, profile: dict) -> ValidationResult:
         rows = profile.get("rows", 0)
 
-        # FAIL CASE – dataset is empty
         if rows == 0:
             return ValidationResult(
                 warning=True,
                 message="Dataset empty",
-                details={"rows": 0}
+                details={"rows": 0},
             )
 
-        # OK CASE – do NOT return anything
-        return None
+        # New: always return a fact result
+        return ValidationResult(
+            warning=False,
+            message="Dataset non-empty",
+            details={"rows": rows},
+        )
+
 
 class DuplicateRule(BaseRule):
     name = "duplicate_rows"
@@ -30,11 +34,12 @@ class DuplicateRule(BaseRule):
         ratio = dup_count / rows if rows else 0.0
 
         return ValidationResult(
-            warning=(dup_count > 0),  # renderer decides significance
+            warning=(dup_count > 0),
             message="Duplicate rows",
             details={
                 "count": dup_count,
-                "ratio": float(ratio),
+                "ratio": f"{ratio:.1%}",
                 "total_rows": rows,
             },
         )
+
