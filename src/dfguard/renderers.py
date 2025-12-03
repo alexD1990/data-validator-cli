@@ -1,189 +1,305 @@
-from typing import Dict, List
-
-import pandas as pd
 from rich.console import Console
-
-from .engine import ValidationReport
-from .rules.base import ValidationResult
 
 console = Console()
 
-def _format_ratio(r: float) -> str:
-    """Format numeric ratio float → 'xx.xx%'."""
-    return f"{r * 100:.2f}%"
+# ------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------
 
-
-def _format_details(details: Dict) -> List[str]:
+def frame(title: str, lines: list[str]):
     """
-    Convert details dict into printable structured lines.
-    Renderer is responsible for formatting.
+    Draw a framed section like:
+    ┌─ Title ─────────────────────────────
+    │ line
+    │ line
+    └─────────────────────────────────────
     """
-    lines = []
+    width = 60
 
-    # Case 1: single-level dictionary (quality/structural)
-    if "columns" not in details:
-        for key, value in details.items():
-            if isinstance(value, float):
-                value_fmt = _format_ratio(value)
-            else:
-                value_fmt = str(value)
-            lines.append(f"{key}: {value_fmt}")
-        return lines
+    header = f"┌─ {title} "
+    header += "─" * max(0, width - len(header))
+    console.print(header)
 
-    # Case 2: multi-column structure (numeric outliers)
-    for col, info in details["columns"].items():
-        count = info["count"]
-        ratio = _format_ratio(info["ratio"])
-        lines.append(f"{col}: count={count}, ratio={ratio}")
+    for line in lines:
+        console.print(f"│ {line}")
 
-    return lines
+    footer = "└" + "─" * (width - 1)
+    console.print(footer)
+    console.print()  # extra spacing
+
+
+def _split_zero_nonzero(details, zero_values=("0.0%", "0%")):
+    """
+    Split columns with issues vs columns clean.
+    """
+    nonzero = {}
+    zero_count = 0
+    for col, val in details.items():
+        # Handle string percentages
+        if isinstance(val, str) and val in zero_values:
+            zero_count += 1
+            continue
+
+        # Handle ints/floats
+        if isinstance(val, (int, float)) and val == 0:
+            zero_count += 1
+            continue
+
+        # Otherwise nonzero
+        nonzero[col] = val
+
+    return nonzero, zero_count
+
+
+def _fmt_median(median):
+    """
+    Smart median formatting:
+    - Remove trailing .0
+    - Round to 2 decimals
+    """
+    if median is None:
+        return "0"
+    try:
+        m = float(median)
+    except:
+        return str(median)
+
+    m = round(m, 2)
+    if m.is_integer():
+        return str(int(m))
+    return str(m)
+
+
+def _fmt_ratio(r):
+    """Ensure consistent ratio formatting."""
+    if isinstance(r, str):
+        return r
+    return f"{r:.1%}"
 
 
 # ------------------------------------------------------------
-# Summary
+# Main renderer
 # ------------------------------------------------------------
 
-def render_summary(report: ValidationReport) -> None:
-    profile = report.profile
-    df = profile.get("df")
-    rows = profile.get("rows", 0)
-    columns = profile.get("columns", 0)
+def render_console(report):
+    _render_summary(report)
+    _render_structural(report)
+    _render_quality(report)
+    _render_numeric(report)
+    _render_status(report)
 
-    text_cols = 0
-    numeric_cols = 0
-    other_cols = 0
+
+# ------------------------------------------------------------
+# Data Summary
+# ------------------------------------------------------------
+
+def _render_summary(report):
+    p = report.profile
+    df = p.get("df")
+    rows = p.get("rows", 0)
+    cols = p.get("columns", 0)
+    colnames = p.get("column_names") or []
+
+    lines = [f"Rows: {rows:,}"]
 
     if df is not None:
-        for col in df.columns:
-            dtype = df[col].dtype
-            if pd.api.types.is_numeric_dtype(dtype):
-                numeric_cols += 1
-            elif pd.api.types.is_string_dtype(dtype) or dtype == object:
-                text_cols += 1
+        num_numeric = len(df.select_dtypes(include=["number"]).columns)
+    else:
+        num_numeric = 0
+
+    num_text = cols - num_numeric
+
+    lines.append(f"Columns: {cols} ({num_numeric} numeric, {num_text} text)")
+
+    # Column names only if <=6, else truncated
+    if len(colnames) <= 6:
+        names = ", ".join(colnames)
+    else:
+        head = ", ".join(colnames[:5])
+        remaining = len(colnames) - 5
+        names = f"{head}, ... (+{remaining} more)"
+
+    lines.append(f"Names: {names}")
+
+    frame("Data Summary", lines)
+
+
+# ------------------------------------------------------------
+# Structural section
+# ------------------------------------------------------------
+
+def _render_structural(report):
+    lines = []
+
+    for res in report.structural_results:
+        msg = res.message.lower()
+        details = res.details or {}
+
+        # IMPORTANT: Check "non-empty" FIRST.
+        # Otherwise "dataset non-empty" incorrectly matches "empty".
+        if msg == "dataset non-empty":
+            lines.append("✓ Dataset contains data")
+            continue
+
+        if msg == "dataset empty":
+            lines.append("⚠ Dataset is empty")
+            continue
+
+        # Duplicate rows (clean phrasing)
+        if "duplicate" in msg:
+            count = details.get("count", 0)
+            ratio = _fmt_ratio(details.get("ratio", "0.0%"))
+
+            if count == 1:
+                row_text = "1 duplicate row"
             else:
-                other_cols += 1
+                row_text = f"{count} duplicate rows"
 
-    console.print("\n[bold cyan]Data Summary[/bold cyan]")
-    console.print(f" Rows:    │ {rows}")
-    console.print(f" Columns: │ {columns}")
-    console.print(f" Types:   │ {text_cols} text, {numeric_cols} numeric, {other_cols} other")
+            symbol = "⚠" if count > 0 else "•"
+            lines.append(f"{symbol} Duplicate rows: {row_text} ({ratio})")
+            continue
 
+        # Fallback (rare)
+        symbol = "⚠" if res.warning else "•"
+        lines.append(f"{symbol} {res.message}")
+        for k, v in details.items():
+            lines.append(f"   - {k}: {v}")
 
-# ------------------------------------------------------------
-# Structural Checks
-# ------------------------------------------------------------
-
-def render_structural(results: List[ValidationResult]) -> None:
-    console.print("\n[bold]Structural Checks[/bold]")
-
-    warnings = [r for r in results if r.warning]
-
-    if warnings:
-        for r in warnings:
-            console.print(f" ⚠ {r.message}")
-            if r.details:
-                for line in _format_details(r.details):
-                    console.print(f"    - {line}")
-    else:
-        console.print(" ✓ No structural issues detected")
+    frame("Structural", lines or ["• No structural checks"])
 
 
 # ------------------------------------------------------------
-# Quality Checks
+# Quality section
 # ------------------------------------------------------------
 
-def render_quality(results: List[ValidationResult]) -> None:
-    console.print("\n[bold]Quality Checks[/bold]")
+def _render_quality(report):
+    lines = []
+    rows = report.profile.get("rows", 1) or 1
 
-    warnings = [r for r in results if r.warning]
+    for res in report.quality_results:
+        msg = res.message.lower()
+        details = res.details or {}
 
-    if warnings:
-        for r in warnings:
-            console.print(f" ⚠ {r.message}")
-            if r.details:
-                for line in _format_details(r.details):
-                    console.print(f"    - {line}")
-    else:
-        console.print(" ✓ No quality issues detected")
+        # Null ratio
+        if "null ratio" in msg:
+            nonzero, zeros = _split_zero_nonzero(details)
+            lines.append("• Null ratio:")
+
+            if nonzero:
+                for col, val in sorted(nonzero.items()):
+                    lines.append(f"   - {col}: {val}")
+            if zeros and not nonzero:
+                lines.append(f"   - All columns with 0.0%")
+            elif zeros:
+                lines.append(f"   - {zeros} columns with 0.0%")
+            continue
+
+        # Type mismatch
+        if "type mismatch" in msg:
+            nonzero, zeros = _split_zero_nonzero(details)
+
+            if not nonzero:
+                lines.append("• Type consistency:")
+                lines.append("   - All columns consistent")
+            else:
+                for col, val in sorted(nonzero.items()):
+                    lines.append(f"⚠ Type mismatch in: {col} ({val})")
+            continue
+
+        # Whitespace issues
+        if "whitespace" in msg:
+            positive = {c: v for c, v in details.items() if v > 0}
+            zero_cols = len(details) - len(positive)
+
+            lines.append("• Whitespace issues:")
+            if positive:
+                for col, cnt in sorted(positive.items()):
+                    ratio = cnt / rows
+                    lines.append(f"   - {col}: {cnt} rows ({ratio:.1%})")
+            if zero_cols and not positive:
+                lines.append("   - No whitespace issues")
+            elif zero_cols:
+                lines.append(f"   - {zero_cols} columns with no whitespace issues")
+            continue
+
+        # Fallback
+        symbol = "⚠" if res.warning else "•"
+        lines.append(f"{symbol} {res.message}")
+        for k, v in details.items():
+            lines.append(f"   - {k}: {v}")
+
+    frame("Quality", lines or ["• No quality checks"])
 
 
 # ------------------------------------------------------------
-# Numeric Distribution (descriptive section)
+# Numeric Distribution
 # ------------------------------------------------------------
 
-def render_numeric(report: ValidationReport) -> None:
-    profile = report.profile
-    df = profile.get("df")
-    numeric_stats = profile.get("numeric_stats", {}) or {}
+def _render_numeric(report):
+    p = report.profile
+    numeric_stats = p.get("numeric_stats", {})
 
-    console.print("\n[bold]Numeric Distribution[/bold]")
-
-    if df is None or not numeric_stats:
-        console.print(" (no numeric columns)")
+    if not numeric_stats:
+        frame("Numeric Distribution", ["• No numeric columns"])
         return
 
-    # Collect outlier counts from numeric_results
-    outlier_data = {}
-    for r in report.numeric_results:
-        if not r.details:
-            continue
-        cols = r.details.get("columns")
-        if not isinstance(cols, dict):
-            continue
-        for col, info in cols.items():
-            outlier_data[col] = info
+    lines = []
+    first = True
 
     for col, stats in numeric_stats.items():
-        s = df[col].dropna()
-        if s.empty:
-            continue
+        if not first:
+            lines.append("")  # Spacer between columns
+        first = False
 
-        col_min = stats["min"]
-        col_max = stats["max"]
-        mean = stats["mean"]
-        std = stats["std"]
+        min_val = stats.get("min")
+        max_val = stats.get("max")
+        mean = float(stats.get("mean", 0.0) or 0.0)
+        median = float(stats.get("median", mean) or mean)
+        outlier = _find_outlier_info(report.numeric_results, col)
 
-        median = float(s.median())
-        q1 = float(s.quantile(0.25))
-        q3 = float(s.quantile(0.75))
-        iqr = q3 - q1
+        # Main line with nice median
+        lines.append(f"• {col}: [{min_val} → {max_val}], median {_fmt_median(median)}")
 
-        # Build warning parts
-        parts = []
+        # Outliers
+        if outlier:
+            count = outlier.get("count", 0)
+            ratio = _fmt_ratio(outlier.get("ratio", "0.0%"))
+            symbol = "⚠" if count > 0 else "•"
+            lines.append(f"   {symbol} {count} outliers ({ratio})")
 
-        # Only warn if >0 outliers
-        if col in outlier_data:
-            count = outlier_data[col]["count"]
-            if count > 0:
-                ratio = outlier_data[col]["ratio"]
-                parts.append(f"{count} outliers ({_format_ratio(ratio)})")
+        # Skew (only if meaningful)
+        if median != 0:
+            rel_diff = abs(mean - median) / abs(median)
+        else:
+            rel_diff = 1 if mean != 0 else 0
 
-        # Suspicious distribution
-        skew = (mean > 2 * median) if (mean is not None and median != 0) else False
-        if skew:
-            parts.append("suspicious distribution")
+        if rel_diff >= 0.5:
+            direction = ">>" if mean > median else "<<"
+            lines.append(f"   mean={_fmt_median(mean)} ({direction} median, indicates skew)")
 
-        warn_suffix = ""
-        if parts:
-            warn_suffix = " ⚠ " + " – ".join(parts)
-
-        console.print(f" • {col}: [{col_min} → {col_max}], median {median}{warn_suffix}")
-
-        # Conditional detail
-        if skew and mean is not None:
-            console.print(f"    - mean {mean:.2f} >> median {median:.2f}")
-        console.print(f"    - IQR [{q1:.2f} → {q3:.2f}]")
+    frame("Numeric Distribution", lines)
 
 
 # ------------------------------------------------------------
-# Validation Status
+# Status
 # ------------------------------------------------------------
 
-def render_status(report: ValidationReport) -> None:
-    any_warning = report.has_warnings
-
-    console.print()
-    if any_warning:
-        console.print("[yellow]Status: WARNING[/yellow]")
+def _render_status(report):
+    if report.status == "error":
+        console.print("✗ Status: ERROR", style="bold red")
+    elif report.status == "warning":
+        console.print("⚠ Status: WARNING", style="bold yellow")
     else:
-        console.print("[bold green]Status: OK[/bold green]")
+        console.print("✓ Status: OK", style="bold green")
+    console.print()
+
+
+# ------------------------------------------------------------
+# Outlier lookup
+# ------------------------------------------------------------
+
+def _find_outlier_info(numeric_results, col):
+    for res in numeric_results or []:
+        if col in (res.details or {}):
+            return res.details[col]
+    return None
