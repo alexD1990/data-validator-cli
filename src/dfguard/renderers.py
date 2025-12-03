@@ -1,189 +1,163 @@
-from typing import Dict, List
+# src/dfguard/renderer.py
 
-import pandas as pd
 from rich.console import Console
-
-from .engine import ValidationReport
+from rich.panel import Panel
+from rich.table import Table
+from .report import ValidationReport
 from .rules.base import ValidationResult
 
 console = Console()
 
-def _format_ratio(r: float) -> str:
-    """Format numeric ratio float → 'xx.xx%'."""
-    return f"{r * 100:.2f}%"
 
-
-def _format_details(details: Dict) -> List[str]:
+def render_console(report: ValidationReport):
     """
-    Convert details dict into printable structured lines.
-    Renderer is responsible for formatting.
+    Render complete fact-based validation report.
+    Always prints the same 4 sections + final status.
     """
-    lines = []
-
-    # Case 1: single-level dictionary (quality/structural)
-    if "columns" not in details:
-        for key, value in details.items():
-            if isinstance(value, float):
-                value_fmt = _format_ratio(value)
-            else:
-                value_fmt = str(value)
-            lines.append(f"{key}: {value_fmt}")
-        return lines
-
-    # Case 2: multi-column structure (numeric outliers)
-    for col, info in details["columns"].items():
-        count = info["count"]
-        ratio = _format_ratio(info["ratio"])
-        lines.append(f"{col}: count={count}, ratio={ratio}")
-
-    return lines
+    _render_summary(report)
+    _render_structural(report)
+    _render_quality(report)
+    _render_numeric(report)
+    _render_status(report)
 
 
-# ------------------------------------------------------------
-# Summary
-# ------------------------------------------------------------
+# -------------------------
+# SUMMARY SECTION
+# -------------------------
 
-def render_summary(report: ValidationReport) -> None:
+def _render_summary(report: ValidationReport):
     profile = report.profile
-    df = profile.get("df")
-    rows = profile.get("rows", 0)
-    columns = profile.get("columns", 0)
-
-    text_cols = 0
-    numeric_cols = 0
-    other_cols = 0
-
-    if df is not None:
-        for col in df.columns:
-            dtype = df[col].dtype
-            if pd.api.types.is_numeric_dtype(dtype):
-                numeric_cols += 1
-            elif pd.api.types.is_string_dtype(dtype) or dtype == object:
-                text_cols += 1
-            else:
-                other_cols += 1
 
     console.print("\n[bold cyan]Data Summary[/bold cyan]")
-    console.print(f" Rows:    │ {rows}")
-    console.print(f" Columns: │ {columns}")
-    console.print(f" Types:   │ {text_cols} text, {numeric_cols} numeric, {other_cols} other")
+
+    console.print(f"  Rows: {profile.get('rows', 0):,}")
+    console.print(f"  Columns: {profile.get('columns', 0)}")
+
+    colnames = profile.get("column_names", [])
+    if colnames:
+        console.print(f"  Column names: {', '.join(colnames)}")
 
 
-# ------------------------------------------------------------
-# Structural Checks
-# ------------------------------------------------------------
+# -------------------------
+# STRUCTURAL SECTION
+# -------------------------
 
-def render_structural(results: List[ValidationResult]) -> None:
-    console.print("\n[bold]Structural Checks[/bold]")
+def _render_structural(report: ValidationReport):
+    console.print("\n[bold cyan]Structural[/bold cyan]")
 
-    warnings = [r for r in results if r.warning]
+    results = report.structural_results or []
 
-    if warnings:
-        for r in warnings:
-            console.print(f" ⚠ {r.message}")
-            if r.details:
-                for line in _format_details(r.details):
-                    console.print(f"    - {line}")
-    else:
-        console.print(" ✓ No structural issues detected")
-
-
-# ------------------------------------------------------------
-# Quality Checks
-# ------------------------------------------------------------
-
-def render_quality(results: List[ValidationResult]) -> None:
-    console.print("\n[bold]Quality Checks[/bold]")
-
-    warnings = [r for r in results if r.warning]
-
-    if warnings:
-        for r in warnings:
-            console.print(f" ⚠ {r.message}")
-            if r.details:
-                for line in _format_details(r.details):
-                    console.print(f"    - {line}")
-    else:
-        console.print(" ✓ No quality issues detected")
-
-
-# ------------------------------------------------------------
-# Numeric Distribution (descriptive section)
-# ------------------------------------------------------------
-
-def render_numeric(report: ValidationReport) -> None:
-    profile = report.profile
-    df = profile.get("df")
-    numeric_stats = profile.get("numeric_stats", {}) or {}
-
-    console.print("\n[bold]Numeric Distribution[/bold]")
-
-    if df is None or not numeric_stats:
-        console.print(" (no numeric columns)")
+    if not results:
+        console.print("  • No structural checks")
         return
 
-    # Collect outlier counts from numeric_results
-    outlier_data = {}
-    for r in report.numeric_results:
-        if not r.details:
-            continue
-        cols = r.details.get("columns")
-        if not isinstance(cols, dict):
-            continue
-        for col, info in cols.items():
-            outlier_data[col] = info
+    for r in results:
+        _render_result(r)
 
+
+# -------------------------
+# QUALITY SECTION
+# -------------------------
+
+def _render_quality(report: ValidationReport):
+    console.print("\n[bold cyan]Quality[/bold cyan]")
+
+    results = report.quality_results or []
+
+    if not results:
+        console.print("  • No quality checks")
+        return
+
+    for r in results:
+        _render_result(r)
+
+
+# -------------------------
+# NUMERIC SECTION
+# -------------------------
+
+def _render_numeric(report: ValidationReport):
+    console.print("\n[bold cyan]Numeric Distribution[/bold cyan]")
+
+    numeric_stats = report.profile.get("numeric_stats", {})
+
+    if not numeric_stats:
+        console.print("  • No numeric columns")
+        return
+
+    # Print summary statistics per numeric column
     for col, stats in numeric_stats.items():
-        s = df[col].dropna()
-        if s.empty:
-            continue
+        min_val = stats.get("min")
+        max_val = stats.get("max")
+        mean = stats.get("mean")
+        median = stats.get("median")
+        std = stats.get("std")
 
-        col_min = stats["min"]
-        col_max = stats["max"]
-        mean = stats["mean"]
-        std = stats["std"]
+        console.print(
+            f"  • {col}: "
+            f"[{min_val} → {max_val}], "
+            f"mean {mean:.2f}, median {median:.2f}, std {std:.2f}"
+        )
 
-        median = float(s.median())
-        q1 = float(s.quantile(0.25))
-        q3 = float(s.quantile(0.75))
-        iqr = q3 - q1
-
-        # Build warning parts
-        parts = []
-
-        # Only warn if >0 outliers
-        if col in outlier_data:
-            count = outlier_data[col]["count"]
-            if count > 0:
-                ratio = outlier_data[col]["ratio"]
-                parts.append(f"{count} outliers ({_format_ratio(ratio)})")
-
-        # Suspicious distribution
-        skew = (mean > 2 * median) if (mean is not None and median != 0) else False
-        if skew:
-            parts.append("suspicious distribution")
-
-        warn_suffix = ""
-        if parts:
-            warn_suffix = " ⚠ " + " – ".join(parts)
-
-        console.print(f" • {col}: [{col_min} → {col_max}], median {median}{warn_suffix}")
-
-        # Conditional detail
-        if skew and mean is not None:
-            console.print(f"    - mean {mean:.2f} >> median {median:.2f}")
-        console.print(f"    - IQR [{q1:.2f} → {q3:.2f}]")
+        # Check for outliers in numeric results
+        outlier_info = _find_outlier_info(report.numeric_results, col)
+        if outlier_info:
+            count = outlier_info.get("count", 0)
+            ratio = outlier_info.get("ratio", "0%")
+            console.print(f"    [yellow]⚠ {count} outliers ({ratio})[/yellow]")
 
 
-# ------------------------------------------------------------
-# Validation Status
-# ------------------------------------------------------------
+# -------------------------
+# RESULT RENDERING BLOCK
+# -------------------------
 
-def render_status(report: ValidationReport) -> None:
-    any_warning = report.has_warnings
+def _render_result(result: ValidationResult):
+    symbol = "⚠" if result.warning else "•"
+    color = "yellow" if result.warning else "white"
+
+    console.print(f"  [{color}]{symbol} {result.message}[/{color}]")
+
+    details = result.details or {}
+    for key, value in details.items():
+
+        # Nested mapping (per-column)
+        if isinstance(value, dict):
+            for subkey, subval in value.items():
+                console.print(f"     - {subkey}: {subval}")
+        else:
+            console.print(f"     - {key}: {value}")
+
+
+# -------------------------
+# FINAL STATUS SECTION
+# -------------------------
+
+def _render_status(report: ValidationReport):
+    console.print()
+
+    status = report.status
+    if status == "error":
+        console.print("[bold red]✗ Status: ERROR[/bold red]")
+    elif status == "warning":
+        console.print("[bold yellow]⚠ Status: WARNING[/bold yellow]")
+    else:
+        console.print("[bold green]✓ Status: OK[/bold green]")
 
     console.print()
-    if any_warning:
-        console.print("[yellow]Status: WARNING[/yellow]")
-    else:
-        console.print("[bold green]Status: OK[/bold green]")
+
+
+# -------------------------
+# HELPERS
+# -------------------------
+
+def _find_outlier_info(numeric_results, colname):
+    """Find outlier stats inside numeric rule results."""
+    for res in (numeric_results or []):
+        if not res or not res.details:
+            continue
+        
+        # NumericOutlierRule produces: details={col: {...}}
+        if colname in res.details:
+            return res.details[colname]
+
+    return None
