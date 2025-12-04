@@ -33,6 +33,8 @@ def _profile_spark_dataframe(df: SparkDataFrame, table_name: Optional[str] = Non
     return profile
 
 
+from dfguard.spark.engine import SparkRuleEngine
+
 def validate_spark(df: SparkDataFrame, table_name: Optional[str] = None):
     """
     Public Spark API.
@@ -40,11 +42,10 @@ def validate_spark(df: SparkDataFrame, table_name: Optional[str] = None):
     """
     profile = _profile_spark_dataframe(df, table_name)
 
-    engine = SparkRuleEngine(
-        structural_rules=[],
-        quality_rules=[],
-        numeric_rules=[],
-        performance_rules=[],
-    )
+    print(profile)
+
+    # Initialize the engine with the rules (not empty lists)
+    engine = SparkRuleEngine()  # This will use the rules defined in the SparkRuleEngine class
 
     return engine.run(profile)
+

@@ -1,11 +1,11 @@
 # src/dfguard/spark/engine.py
 
-from __future__ import annotations
-
-from typing import Any, Dict, List, Optional
-
-from dfguard.rules.base import BaseRule, ValidationResult
+from typing import Dict
+from dfguard.rules.base import ValidationResult
 from dfguard.report import ValidationReport
+from dfguard.rules.spark.structural import SparkNonEmptyRule, SparkDuplicateRule
+from dfguard.rules.spark.quality import SparkNullRatioRule, SparkTypeMismatchRule
+from dfguard.rules.spark.performance import SmallFileRule
 
 
 class SparkRuleEngine:
@@ -14,68 +14,71 @@ class SparkRuleEngine:
     Mirrors the pandas RuleEngine but rules are Spark-native.
     """
 
-    def __init__(
-        self,
-        structural_rules: Optional[List[BaseRule]] = None,
-        quality_rules: Optional[List[BaseRule]] = None,
-        numeric_rules: Optional[List[BaseRule]] = None,
-        performance_rules: Optional[List[BaseRule]] = None,
-    ):
-        self.structural_rules = structural_rules or []
-        self.quality_rules = quality_rules or []
-        self.numeric_rules = numeric_rules or []
-        self.performance_rules = performance_rules or []
+    def __init__(self):
+        # List of Spark-specific structural rules
+        self.structural_rules = [
+            SparkNonEmptyRule(),
+            SparkDuplicateRule(),
+        ]
 
-    def _run_bucket(
-        self,
-        rules: List[BaseRule],
-        profile: Dict[str, Any],
-    ) -> List[Optional[ValidationResult]]:
-        results: List[Optional[ValidationResult]] = []
+        # List of Spark-specific quality rules
+        self.quality_rules = [
+            SparkNullRatioRule(),
+            SparkTypeMismatchRule(),
+        ]
 
+        # Performance rule for detecting small files
+        self.performance_rules = [
+            SmallFileRule(),
+        ]
+
+    def _run_bucket(self, rules, profile: Dict) -> list:
+        """
+        Run a list of rules and collect results.
+        This handles both structural, quality, numeric, and performance rules.
+        """
+        results = []
         for rule in rules:
             try:
-                res = rule.apply(profile)
+                result = rule.apply(profile)
 
-                if res is None:
+                # If the rule returns None (no issues), continue
+                if result is None:
                     results.append(None)
                     continue
 
-                if isinstance(res, ValidationResult):
-                    setattr(res, "name", getattr(rule, "name", None))
-                    results.append(res)
-                    continue
-
-                raise TypeError(
-                    f"Spark rule '{getattr(rule, 'name', rule.__class__.__name__)}' "
-                    f"returned invalid result type: {type(res)}"
-                )
-
-            except Exception as exc:
+                if isinstance(result, ValidationResult):
+                    setattr(result, "name", getattr(rule, "name", None))
+                    results.append(result)
+            except Exception as e:
+                # Register rule failure as a warning
                 vr = ValidationResult(
                     warning=True,
-                    message=f"Spark rule '{getattr(rule, 'name', rule.__class__.__name__)}' failed",
-                    details={"error": str(exc)},
+                    message=f"Rule '{getattr(rule, 'name', rule.__class__.__name__)}' failed",
+                    details={"error": str(e)},
                 )
                 setattr(vr, "name", getattr(rule, "name", None))
                 results.append(vr)
 
         return results
 
-    def run(self, profile: Dict[str, Any]) -> ValidationReport:
+    def run(self, profile: Dict) -> ValidationReport:
         """
-        Run Spark-native structural, quality, numeric, and performance rules.
-        Returns a ValidationReport.
+        Run all Spark-specific rules and return a ValidationReport.
         """
-        structural = self._run_bucket(self.structural_rules, profile)
-        quality = self._run_bucket(self.quality_rules, profile)
-        numeric = self._run_bucket(self.numeric_rules, profile)
-        performance = self._run_bucket(self.performance_rules, profile)
+        # Run structural rules (non-empty, duplicates)
+        structural_results = self._run_bucket(self.structural_rules, profile)
 
-        # For now, Spark validation returns no rules because we will add them later.
+        # Run quality rules (null ratio, type mismatch)
+        quality_results = self._run_bucket(self.quality_rules, profile)
+
+        # Run performance rule (small file detection)
+        performance_results = self._run_bucket(self.performance_rules, profile)
+
         return ValidationReport(
             profile=profile,
-            structural_results=[r for r in structural if r is not None],
-            quality_results=[r for r in quality if r is not None],
-            numeric_results=[r for r in numeric if r is not None],
+            structural_results=[r for r in structural_results if r is not None],
+            quality_results=[r for r in quality_results if r is not None],
+            numeric_results=[],  # Can be added later
+            performance_results=[r for r in performance_results if r is not None],
         )
